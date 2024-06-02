@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    container_name: db
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PW}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - '5432:5432'
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    ports:
+      # AMQP protocol port
+      - "5672:5672"
+      # HTTP management UI
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PW}
+
+  postgres_rabbitmq_bridge:
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    build:
+      context: ./
+      dockerfile: postgres-rabbitmq-bridge/Dockerfile
+
+  djangostub:
+    platform: linux/amd64
+    depends_on:
+      postgres_rabbitmq_bridge:
+          condition: service_started
+    build:
+      context: ./
+      dockerfile: djangostub/Dockerfile

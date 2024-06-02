@@ -1,0 +1,10 @@
+BEGIN;
+
+DROP TRIGGER IF EXISTS patient_changed ON $TABLE$;
+
+CREATE TRIGGER $TABLE$_changed
+    AFTER INSERT OR UPDATE ON $TABLE$
+    FOR EACH ROW
+    EXECUTE PROCEDURE notify_table_change();
+
+COMMIT;
