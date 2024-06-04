@@ -1,6 +1,10 @@
 import os
 import time
+
+import select
 import psycopg2
+import psycopg2.extensions
+
 import pika
 import json
 
@@ -13,6 +17,8 @@ load_dotenv()
 pg_user_env = os.getenv("POSTGRES_USER")
 pg_pw_env = os.getenv("POSTGRES_PW")
 pg_db_env = os.getenv("POSTGRES_DB")
+
+rabbitmq_url_env = os.getenv("AMQP_URL")
 rabbitmq_user_env = os.getenv("RABBITMQ_USER")
 rabbitmq_pw_env = os.getenv("RABBITMQ_PW")
 
@@ -29,6 +35,7 @@ class DB:
                  user=user,
                  password=pw
             )
+            print("Bridge connected to postgreSQL")
             self._conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         except Exception as e:
             print(f"Unable to connect to the database: {repr(e)}")
@@ -42,7 +49,7 @@ class DB:
             # result is list of tuples; we need the first tuple elements
             table_names = [t[0] for t in curs.fetchall()]
 
-            # Create trigger function
+            # Install trigger function
             with open('trigger_function.sql', 'r') as file:
                 sql_code = file.read()
                 curs.execute(sql_code)
@@ -60,13 +67,15 @@ class DB:
 class RabbitMQ:
     def __init__(self, user, pw):
         try:
-            credentials = pika.PlainCredentials(user, pw)
-            parameters = pika.ConnectionParameters(
-                host='rabbitmq',
-                port=5672,
-                virtual_host='/',
-                credentials=credentials)
-            self._conn = pika.BlockingConnection(parameters)
+            #credentials = pika.PlainCredentials(user, pw)
+            #parameters = pika.ConnectionParameters(
+            #    host='rmq0',
+            #    port=15672,
+            #    virtual_host='/',
+            #    credentials=credentials)
+            url_params = pika.URLParameters(rabbitmq_url_env)
+            self._conn = pika.BlockingConnection(url_params)
+            print("Bridge connected to rabbitmq")
 
             self._chan_newpatient = self._conn.channel()
             self._chan_newpatient.queue_declare(queue='newpatient')
@@ -101,27 +110,30 @@ if __name__ == "__main__":
     rabbit = RabbitMQ(rabbitmq_user_env, rabbitmq_pw_env)
 
     while True:
-        db._conn.poll()
-        while db._conn.notifies:
-            notify = db._conn.notifies.pop(0)
-            print("Got NOTIFY:", notify.pid, notify.channel, notify.payload)
+        if select.select([db._conn],[],[],5) == ([],[],[]):
+            print("Timeout")
+        else:
+            db._conn.poll()
+            while db._conn.notifies:
+                notify = db._conn.notifies.pop(0)
+                print("Got NOTIFY:", notify.pid, notify.channel, notify.payload)
 
-            msg = json.loads(notify.payload)
+                msg = json.loads(notify.payload)
 
-            # If new patient, send that message
-            if msg.get("operation") == "INSERT" and \
-                msg.get("table") == "patient":
+                # If new patient, send that message
+                if msg.get("operation") == "INSERT" and \
+                    msg.get("table") == "patient":
+                    record = msg.get("new_record")
+                    patientid = record.get("_patientid")
+                    timestamp = record.get("timestamp")
+                    rabbitmq_msg = {'patientid': patientid,
+                                    'timestamp': timestamp}
+                    rabbit.publish_new_patient(json.dumps(rabbitmq_msg))
+
+                # Send latest update message
+                table = msg.get("table")
                 record = msg.get("new_record")
-                patientid = record.get("_patientid")
                 timestamp = record.get("timestamp")
-                rabbitmq_msg = {'patientid': patientid,
+                rabbitmq_msg = {'table': table,
                                 'timestamp': timestamp}
-                rabbit.publish_new_patient(json.dumps(rabbitmq_msg))
-
-            # Send latest update message
-            table = msg.get("table")
-            record = msg.get("new_record")
-            timestamp = record.get("timestamp")
-            rabbitmq_msg = {'table': table,
-                            'timestamp': timestamp}
-            rabbit.publish_latest_update(json.dumps(rabbitmq_msg))
+                rabbit.publish_latest_update(json.dumps(rabbitmq_msg))
