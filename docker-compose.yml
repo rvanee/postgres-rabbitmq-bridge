@@ -24,36 +24,6 @@ services:
       timeout: 5s
       retries: 30
 
-  prometheus:
-    image: prom/prometheus
-    container_name: prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-    ports:
-      - 9090:9090
-    networks:
-      - messaging-network
-    restart: unless-stopped
-    volumes:
-      - ./prometheus:/etc/prometheus
-      - prom_data:/prometheus
-
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    ports:
-      - 3000:3000
-    restart: unless-stopped
-    networks:
-      - messaging-network
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=grafana
-    volumes:
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana/dashboards-provisioning:/etc/grafana/provisioning/dashboards
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
-
   rmq0:
     image: rmq0
     container_name: "rabbitmq"
@@ -98,6 +68,69 @@ services:
       dockerfile: djangostub/Dockerfile
     networks:
       - database-network
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - 9090:9090
+    networks:
+      - messaging-network
+    restart: unless-stopped
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prom_data:/prometheus
+
+  db_management:
+    image: postgres:latest
+    restart: unless-stopped
+    container_name: db_management
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_MANAGEMENT_PW}
+      POSTGRES_USER: ${POSTGRES_MANAGEMENT_USER}
+      POSTGRES_DB: ${POSTGRES_MANAGEMENT_DB}
+    ports:
+      - '5433:5432'
+    networks:
+      - messaging-network
+    volumes:
+      - ./db_management:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  kpi_extractor:
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+        AMQP_URL: 'amqp://rmq0?connection_attempts=10&retry_delay=10'
+    networks:
+      - messaging-network
+    build:
+      context: ./
+      dockerfile: kpi-extractor/Dockerfile
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    networks:
+      - messaging-network
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/dashboards-provisioning:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
 
 volumes:
   prom_data:

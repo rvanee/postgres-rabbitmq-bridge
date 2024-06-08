@@ -8,7 +8,7 @@ BEGIN
             json_build_object(
                     'table', TG_TABLE_NAME,
                     'operation', TG_OP,
-                    'timestamp', current_timestamp,
+                    'timestamp', current_timestamp(6),
                     'new_record', row_to_json(NEW),
                     'old_record', row_to_json(OLD)
                 )::text

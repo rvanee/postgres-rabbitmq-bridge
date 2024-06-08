@@ -110,9 +110,7 @@ if __name__ == "__main__":
     rabbit = RabbitMQ(rabbitmq_user_env, rabbitmq_pw_env)
 
     while True:
-        if select.select([db._conn],[],[],5) == ([],[],[]):
-            print("Timeout")
-        else:
+        if not select.select([db._conn],[],[],5) == ([],[],[]):
             db._conn.poll()
             while db._conn.notifies:
                 notify = db._conn.notifies.pop(0)
@@ -125,7 +123,7 @@ if __name__ == "__main__":
                     msg.get("table") == "patient":
                     record = msg.get("new_record")
                     patientid = record.get("_patientid")
-                    timestamp = record.get("timestamp")
+                    timestamp = msg.get("timestamp")
                     rabbitmq_msg = {'patientid': patientid,
                                     'timestamp': timestamp}
                     rabbit.publish_new_patient(json.dumps(rabbitmq_msg))
@@ -133,7 +131,7 @@ if __name__ == "__main__":
                 # Send latest update message
                 table = msg.get("table")
                 record = msg.get("new_record")
-                timestamp = record.get("timestamp")
+                timestamp = msg.get("timestamp")
                 rabbitmq_msg = {'table': table,
                                 'timestamp': timestamp}
                 rabbit.publish_latest_update(json.dumps(rabbitmq_msg))
