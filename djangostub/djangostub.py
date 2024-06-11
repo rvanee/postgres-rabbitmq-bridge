@@ -2,6 +2,7 @@ import datetime
 import os
 import time
 import json
+import random
 import psycopg2
 
 from dotenv import load_dotenv
@@ -16,8 +17,8 @@ db_env = os.getenv("POSTGRES_DB")
 
 # Timing
 WAIT_UNTIL_START = 30 # seconds
-UPDATE_INTERVAL = 10  # seconds
-
+MIN_UPDATE_INTERVAL = 3  # seconds
+MAX_UPDATE_INTERVAL = 15  # seconds
 
 class DB:
     def __init__(self, user, pw, db):
@@ -89,7 +90,8 @@ if __name__ == "__main__":
                 else:
                     print(f"Adding record: {patient}")
                 db.add_patient(patient, update_instead_of_insert)
-                time.sleep(UPDATE_INTERVAL)
+                time.sleep(
+                    random.randint(MIN_UPDATE_INTERVAL,MAX_UPDATE_INTERVAL))
 
         # After the first round, UPDATE instead of INSERT INTO
         update_instead_of_insert = True

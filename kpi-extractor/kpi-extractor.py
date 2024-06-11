@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timedelta
 import logging
 from dotenv import load_dotenv
 
@@ -10,7 +11,7 @@ import json
 
 from consumer import MessageProcessor, ReconnectingExampleConsumer
 
-
+LOGGER = logging.getLogger(__name__)
 LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -30s %(funcName) '
               '-35s %(lineno) -5d: %(message)s')   
 
@@ -32,8 +33,9 @@ WAIT_UNTIL_START = 20 # seconds
 SQL_CREATE_LASTUPDATED_TABLE = \
     "CREATE TABLE IF NOT EXISTS lastupdated(" \
     "_id SERIAL PRIMARY KEY," \
-    "_timestamp timestamp NOT NULL," \
-    "_table text);"
+    "time timestamp NOT NULL," \
+    "deltaseconds INT NOT NULL," \
+    "tablename text);"
 
 class DB(MessageProcessor):
     def __init__(self, user, pw, db):
@@ -52,6 +54,9 @@ class DB(MessageProcessor):
 
         # Create table
         self.execute(SQL_CREATE_LASTUPDATED_TABLE)
+
+        # Previous up'date'
+        self._previous_update = None
  
     def execute(self, sql_code: str):
         with self._conn.cursor() as curs:
@@ -59,11 +64,19 @@ class DB(MessageProcessor):
         
     def process_message(self, msg):
         data = json.loads(msg.decode('utf-8'))
-        timestamp = data.get("timestamp")
-        table = data.get("table")
-        sql_code = "INSERT INTO lastupdated (_timestamp, _table) VALUES(" \
-            f"TO_TIMESTAMP('{timestamp}', 'YYYY-MM-DDTHH24:MI:SS.US TZH:TZM')," \
-            f"'{table}');"
+        timestamp_str = data.get("timestamp")
+        timestamp_datetime = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%f%z')
+        delta_seconds = timedelta(seconds=0) \
+            if self._previous_update is None \
+            else (timestamp_datetime - self._previous_update).total_seconds()
+        self._previous_update = timestamp_datetime
+
+        tablename = data.get("table")
+        sql_code = "INSERT INTO lastupdated (time, deltaseconds, tablename) VALUES(" \
+            f"TO_TIMESTAMP('{timestamp_str}', 'YYYY-MM-DDTHH24:MI:SS.USTZH:TZM')," \
+            f"{delta_seconds}," \
+            f"'{tablename}');"
+        LOGGER.info(f"Sending SQL to databse {self._conn.info.dbname}: {sql_code}")
         self.execute(sql_code)
 
     def close(self):
